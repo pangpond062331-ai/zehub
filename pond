@@ -1,520 +1,553 @@
 --[[
-	================================================================
-	Dev Utility & Teleport Suite
-	สคริปต์ผู้ช่วยพัฒนาเกมและจัดการระบบวาร์ป (รวมทุกระบบในไฟล์เดียว)
-
-	ประเภทไฟล์ : LocalScript
-	ตำแหน่ง    : StarterPlayer > StarterPlayerScripts > [ไฟล์นี้]
-
-	สรุปฟังก์ชันและคีย์ลัด
-	----------------------------------------------------------------
-	P  = พิมพ์พิกัดตัวละครปัจจุบันรูปแบบ Vector3.new(X, Y, Z) ลง Output
-	B  = เสก Part สีแดงโปร่งแสง ขนาด 4x4x4 ตรงหน้าตัวละคร พร้อมพิมพ์พิกัด
-	M  = คำนวณระยะห่าง (Studs) ระหว่างตัวละครกับจุดที่เมาส์ชี้
-	F2 = เพิ่มค่า Coins ใน leaderstats ให้ผู้เล่น +1,000 (ถ้ามี)
-	F3 = สลับเปิด/ปิดโหมดวิ่งเร็ว (WalkSpeed = 50) พร้อมรีเลือดเต็ม
-	T  = Teleport ตัวละครไปยังจุดที่เมาส์ชี้ทันที
-	N  = สลับเปิด/ปิดโหมด NoClip (เดินทะลุกำแพงสำหรับทดสอบแมป)
-	C  = ลบ Part ทดสอบและประตูวาร์ปทั้งหมดที่เสกออกมาทิ้ง (Clean Up)
-	K  = Set Point 1 : บันทึกจุดเริ่มต้น (Entrance) จากตำแหน่งที่ยืนอยู่
-	L  = Set Point 2 : บันทึกจุดปลายทาง (Exit) แล้วสร้างประตูวาร์ปที่ Point 1
-	     พร้อมใส่ Script วาร์ปจริง (Cooldown 2 วินาที + Fade หน้าจอดำ)
-	     และพิมพ์ซอร์สโค้ดของสคริปต์วาร์ปลง Output เพื่อคัดลอกไปใช้ต่อ
-
-	ข้อจำกัดที่ควรทราบ (สำคัญ)
-	----------------------------------------------------------------
-	1) LocalScript สร้าง Instance ได้เฉพาะ "ฝั่ง Client" เท่านั้น
-	   - ประตูวาร์ป/Part ที่เสกระหว่างเล่นจึงมีเฉพาะในเครื่องตัวเอง
-	   - Script ที่ใส่ในประตูจะไม่ถูกรันบนเซิร์ฟเวอร์ใน Play Solo
-	   - เพื่อให้ทดสอบได้ทันที สคริปต์นี้รัน "ระบบวาร์ปฝั่ง Client"
-	     คู่กับประตูที่เสกเอง (ตรวจจับ + Fade + Cooldown 2 วินาทีเช่นกัน)
-	2) คุณสมบัติ Script.Source ถูกจำกัดด้วยสิทธิ์ Plugin
-	   - ถ้าเซ็ต Source ไม่ได้ จะเก็บซอร์สไว้ใน StringValue ภายในประตู
-	     และพิมพ์ลง Output ให้คัดลอกไปวางใน Script จริงเอง
-	3) การเสก/วาร์ปของ LocalScript ใช้ทดสอบคนเดียวใน Studio
-	   - เกมหลายผู้เล่นจริงต้องย้าย logic ไปฝั่งเซิร์ฟเวอร์
-	     โดยใช้ซอร์สโค้ดที่พิมพ์ออกมากับ RemoteEvent ตามต้องการ
-	================================================================
+    ╔══════════════════════════════════════════════════════╗
+    ║          🤖 ROBOT FRAMEWORK - FULL EDITION           ║
+    ║         Script by: PangPond | Platform: Execute      ║
+    ╚══════════════════════════════════════════════════════╝
 ]]
 
--- ===================== ส่วน Services (ระบบที่ Roblox ให้มา) =====================
-local Players = game:GetService("Players")                    -- ใช้หาผู้เล่น (ตัวเรา), leaderstats และ PlayerGui
-local UserInputService = game:GetService("UserInputService")  -- ใช้ดักจับคีย์ลัดจากคีย์บอร์ดและตำแหน่งเมาส์
-local RunService = game:GetService("RunService")              -- ใช้รันโค้ดทุกเฟรม (HUD, NoClip, เช็คประตู)
-local TweenService = game:GetService("TweenService")          -- ใช้ทำเอฟเฟกต์ Fade หน้าจอดำ
+-- ──────────────────────────────────────────────
+--  SERVICES
+-- ──────────────────────────────────────────────
+local Players         = game:GetService("Players")
+local RunService      = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService    = game:GetService("TweenService")
+local Workspace       = game:GetService("Workspace")
 
--- ===================== ตัวแปรหลักของผู้เล่น =====================
-local player = Players.LocalPlayer                            -- LocalPlayer = ผู้เล่นที่รันสคริปต์นี้ (ตัวเราเอง)
-local playerGui = player:WaitForChild("PlayerGui")            -- PlayerGui ที่จะผูก GUI ทั้งหมด (รอจนกว่าจะพร้อม)
+local LocalPlayer = Players.LocalPlayer
+local Character   = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Humanoid    = Character:WaitForChild("Humanoid")
 
--- ตัวแปรอ้างอิงตัวละคร (จะถูกอัปเดตใหม่ทุกครั้งที่ตัวละครเกิด)
-local character = nil                                          -- Model ตัวละครปัจจุบัน
-local humanoid = nil                                           -- Humanoid ใช้สั่ง WalkSpeed และ Health
-local rootPart = nil                                           -- HumanoidRootPart ใช้อ่าน/เขียนพิกัดการวาร์ป
+-- ──────────────────────────────────────────────
+--  CONFIG
+-- ──────────────────────────────────────────────
+local Config = {
+    WalkSpeed      = 100,
+    JumpPower      = 100,
+    AutoFarmActive = false,
+    AutoAimActive  = false,
+    NoclipActive   = false,
+    ESPActive      = false,
+    DetectRange    = 100,   -- studs
+    AttackDamage   = 50,
+}
 
--- สถานะโหมดต่าง ๆ (true = เปิด, false = ปิด)
-local speedMode = false                                        -- สถานะโหมดวิ่งเร็ว (คีย์ F3)
-local noClipEnabled = false                                    -- สถานะโหมด NoClip (คีย์ N)
+-- ──────────────────────────────────────────────
+--  UTILITY FUNCTIONS
+-- ──────────────────────────────────────────────
 
--- สถานะของ Teleport Builder
-local point1 = nil                                             -- CFrame ของจุดเริ่มต้น/Entrance (คีย์ K)
-local point2 = nil                                             -- CFrame ของจุดปลายทาง/Exit (คีย์ L)
-
--- ตารางเก็บ Instance ที่เสกออกมา เพื่อให้คีย์ C ล้างได้หมด
-local spawnedParts = {}                                        -- Part ทดสอบที่เสกด้วยคีย์ B
-local gates = {}                                               -- ประตูวาร์ปที่สร้างด้วยคีย์ L (เก็บข้อมูล + state)
-local spawnCounter = 0                                         -- ตัวนับสำหรับตั้งชื่อ Part ทดสอบไม่ให้ซ้ำ
-
--- ===================== ฟังก์ชันช่วยเหลือ (Helpers) =====================
-
--- ปัดเศษตัวเลขให้เหลือทศนิยม 2 ตำแหน่ง เพื่อให้ค่าที่พิมพ์อ่านง่ายและยังก๊อปปี้ใช้ได้
-local function round2(n)
-	return math.round(n * 100) / 100                          -- คูณ 100 → ปัดเศษ → หาร 100 คืนเป็นทศนิยม 2 ตำแหน่ง
+--- หา Character ของ Enemy ทั้งหมด
+local function GetEnemies()
+    local enemies = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local hum = player.Character:FindFirstChildOfClass("Humanoid")
+            if hrp and hum and hum.Health > 0 then
+                table.insert(enemies, player.Character)
+            end
+        end
+    end
+    return enemies
 end
 
--- แปลง Vector3 เป็นข้อความรูปแบบ Vector3.new(X, Y, Z) เพื่อพิมพ์ลง Output ให้ก๊อปปี้เป็นโค้ดได้ทันที
-local function formatVector3(v)
-	return "Vector3.new("                                       -- เริ่มด้วยข้อความ Vector3.new(
-		.. tostring(round2(v.X)) .. ", "                        -- ตามด้วยค่า X ปัดเศษแล้ว + จุลภาค
-		.. tostring(round2(v.Y)) .. ", "                        -- ตามด้วยค่า Y ปัดเศษแล้ว + จุลภาค
-		.. tostring(round2(v.Z)) .. ")"                         -- ตามด้วยค่า Z ปัดเศษแล้ว + ปิดวงเล็บ
+--- หา Enemy ที่ใกล้ที่สุด
+local function GetNearestEnemy()
+    local nearest, minDist = nil, math.huge
+    for _, enemy in ipairs(GetEnemies()) do
+        local hrp = enemy:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local dist = (HumanoidRootPart.Position - hrp.Position).Magnitude
+            if dist < minDist then
+                minDist = dist
+                nearest = enemy
+            end
+        end
+    end
+    return nearest, minDist
 end
 
--- ยิง Ray จากกล้องผ่านตำแหน่งเมาส์ เพื่อหา "จุดที่เมาส์ชี้" บนวัตถุในโลก (คืน nil ถ้าไม่โดนอะไรเลย)
-local function getMouseHit()
-	local cam = workspace.CurrentCamera                         -- ดึงกล้องปัจจุบันใหม่ทุกครั้ง (กันกล้องถูกเปลี่ยนระหว่างเล่น)
-	if not cam then return nil end                             -- ยังไม่มีกล้อง → คืน nil ไปก่อน
-	local mouseLocation = UserInputService:GetMouseLocation()  -- อ่านตำแหน่งเมาส์บนหน้าจอ (หน่วย Pixel)
-	local ray = cam:ViewportPointToRay(mouseLocation.X, mouseLocation.Y) -- แปลงตำแหน่งหน้าจอเป็น Ray ยิงออกจากกล้อง
-	local params = RaycastParams.new()                         -- สร้างตั้งค่าสำหรับการยิง Ray
-	params.FilterType = Enum.RaycastFilterType.Exclude         -- ใช้โหมด "ยกเว้น" Instance ที่ระบุไว้
-	params.FilterDescendantsInstances = { character }          -- ยกเว้นตัวละครตัวเอง (กันชี้โดนตัวเราเอง)
-	return workspace:Raycast(ray.Origin, ray.Direction * 5000, params) -- ยิง Ray ไกล 5,000 สตั๊ด แล้วคืนผลที่เจอ
+-- ──────────────────────────────────────────────
+--  🚀 MOVEMENT FUNCTIONS
+-- ──────────────────────────────────────────────
+
+local Movement = {}
+
+--- ตั้งค่า WalkSpeed
+function Movement.SetSpeed(speed)
+    Humanoid.WalkSpeed = speed
+    Config.WalkSpeed = speed
+    print("[Robot] Speed set to " .. speed)
 end
 
--- ===================== จัดการตัวละคร (รันใหม่ทุกครั้งที่ตัวละครเกิด) =====================
-local function onCharacterAdded(newCharacter)
-	character = newCharacter                                     -- เก็บ Model ตัวละครตัวใหม่
-	rootPart = newCharacter:WaitForChild("HumanoidRootPart", 10) -- รอ Part หลักของตัวละคร (สูงสุด 10 วินาที)
-	humanoid = newCharacter:WaitForChild("Humanoid", 10)         -- รอ Humanoid (สูงสุด 10 วินาที)
-	if humanoid then                                            -- ถ้าหา Humanoid เจอ
-		humanoid.WalkSpeed = 16                                  -- คืนค่าความเร็วเป็นค่าเริ่มต้นของ Roblox (16)
-	end
-	speedMode = false                                           -- รีเซ็ตสถานะโหมดวิ่งเร็วไม่ให้ค้างไว้ข้ามการเกิดใหม่
-	-- * NoClip ไม่รีเซ็ต เพราะเป็นสวิตช์ระดับ "การเล่น" ตัวละครใหม่จะยังคงโหมดเดิม
-	if rootPart then                                            -- ถ้ามี rootPart พร้อมใช้งาน
-		print("[DevUtility] พร้อมใช้งาน | พิกัดตัวละคร: " .. formatVector3(rootPart.Position)) -- แจ้งสถานะลง Output
-	end
+--- ตั้งค่า JumpPower
+function Movement.SetJump(power)
+    Humanoid.JumpPower = power
+    Config.JumpPower = power
+    print("[Robot] JumpPower set to " .. power)
 end
 
-player.CharacterAdded:Connect(onCharacterAdded)                -- ผูกฟังก์ชันไว้กับอีเวนต์ "ตัวละครเกิดใหม่"
-if player.Character then                                       -- กรณีสคริปต์รันช้ากว่าการเกิดตัวละคร (ตัวละครมีอยู่แล้ว)
-	onCharacterAdded(player.Character)                          -- เรียกใช้ทันทีเพื่ออ้างอิงตัวละครเดิม
+--- Teleport ไปยังตำแหน่งที่กำหนด
+function Movement.Teleport(position)
+    HumanoidRootPart.CFrame = CFrame.new(position)
+    print("[Robot] Teleported to " .. tostring(position))
 end
 
--- ===================== เอฟเฟกต์ Fade หน้าจอดำ (ใช้ตอนวาร์ป) =====================
-local FADE_DURATION = 0.3                                       -- ระยะเวลา Fade 1 รอบ (วินาที)
-
--- ทำเอฟเฟกต์จอดำ → รันงานที่ส่งมา (action) → จอกลับใส → ลบ GUI ทิ้ง (ใช้งานร่วมกับ task.spawn)
-local function fadeOverlay(action)
-	local gui = Instance.new("ScreenGui")                       -- สร้าง GUI ชั่วคราวสำหรับเอฟเฟกต์จอดำ
-	gui.Name = "DevUtilityFadeGui"                              -- ตั้งชื่อ GUI ให้จำง่าย
-	gui.IgnoreGuiInset = true                                   -- ให้ครอบคลุมถึงแถบ UI ด้านบนของหน้าจอ
-	gui.ResetOnSpawn = false                                    -- ไม่ให้หายไปตอนตัวละครเกิดใหม่
-	gui.DisplayOrder = 1000                                     -- ให้แสดงทับ GUI อื่นทั้งหมด
-	local frame = Instance.new("Frame")                         -- สร้างกรอบสีดำเต็มจอ
-	frame.Size = UDim2.fromScale(1, 1)                          -- ครอบคลุมทั้งจอ (สัดส่วน 100% ทั้งกว้างและสูง)
-	frame.BackgroundColor3 = Color3.new(0, 0, 0)                -- สีดำสนิท
-	frame.BackgroundTransparency = 1                            -- เริ่มต้นโปร่งใส 100% (ยังมองไม่เห็น)
-	frame.BorderSizePixel = 0                                   -- ปิดเส้นขอบของกรอบ
-	frame.Parent = gui                                          -- ใส่ Frame เข้าไปใน GUI
-	gui.Parent = playerGui                                      -- ใส่ GUI เข้า PlayerGui ของเราให้มองเห็นบนหน้าจอ
-	local fadeIn = TweenService:Create(                         -- สร้าง Tween สำหรับ Fade เข้า (จอค่อย ๆ ดำ)
-		frame,                                                  -- เป้าหมายที่จะเปลี่ยนค่า
-		TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), -- ตั้งเวลา/สไตล์การเคลื่อนที่
-		{ BackgroundTransparency = 0 }                          -- ค่าปลายทาง = ทึบสนิท (ดำสนิท)
-	)
-	fadeIn:Play()                                               -- เริ่มเล่น Tween Fade เข้า
-	fadeIn.Completed:Wait()                                     -- รอจนจอดำสนิทก่อนทำขั้นถัดไป
-	if action then                                              -- ถ้ามีงานต้องทำระหว่างจอดำ (เช่น การวาร์ป)
-		action()                                                -- รันงานนั้นตอนจอดำ เพื่อไม่ให้เห็นตัวละครกระโดด
-	end
-	local fadeOut = TweenService:Create(                        -- สร้าง Tween สำหรับ Fade ออก (จอค่อย ๆ ใส)
-		frame,                                                  -- เป้าหมายที่จะเปลี่ยนค่า
-		TweenInfo.new(FADE_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In), -- ตั้งเวลา/สไตล์การเคลื่อนที่
-		{ BackgroundTransparency = 1 }                          -- ค่าปลายทาง = โปร่งใส 100% (จอกลับใส)
-	)
-	fadeOut:Play()                                              -- เริ่มเล่น Tween Fade ออก
-	fadeOut.Completed:Wait()                                    -- รอจนจอใสสนิท
-	gui:Destroy()                                               -- ลบ GUI ชั่วคราวทิ้งเพื่อไม่ให้ค้างในเกม
+--- Teleport ไปหา player ที่ระบุชื่อ
+function Movement.TeleportToPlayer(targetName)
+    local target = Players:FindFirstChild(targetName)
+    if target and target.Character then
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            HumanoidRootPart.CFrame = hrp.CFrame + Vector3.new(0, 3, 0)
+            print("[Robot] Teleported to " .. targetName)
+        end
+    else
+        warn("[Robot] Player not found: " .. targetName)
+    end
 end
 
--- ===================== สร้าง GUI แสดงสถานะมุมซ้ายบน (HUD) =====================
-local hudGui = Instance.new("ScreenGui")                       -- สร้าง ScreenGui สำหรับ HUD สถานะ
-hudGui.Name = "DevUtilityHUD"                                  -- ตั้งชื่อ HUD
-hudGui.ResetOnSpawn = false                                    -- คงอยู่แม้ตัวละครเกิดใหม่
-hudGui.DisplayOrder = 10                                       -- แสดงก่อน GUI ทั่วไปเล็กน้อย
-hudGui.Parent = playerGui                                      -- ผูกเข้ากับ PlayerGui ของเรา
-
-local hudFrame = Instance.new("Frame")                         -- กรอบพื้นหลังของ HUD
-hudFrame.Size = UDim2.new(0, 360, 0, 76)                       -- กว้าง 360px สูง 76px พอสำหรับ 3 บรรทัด
-hudFrame.Position = UDim2.new(0, 12, 0, 12)                    -- วางชิดมุมซ้ายบน (ห่างขอบ 12px)
-hudFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 24)         -- สีพื้นเข้มให้อ่านตัวอักษรออกชัด
-hudFrame.BackgroundTransparency = 0.3                          -- โปร่งแสงเล็กน้อยให้ยังเห็นฉากหลัง
-hudFrame.BorderSizePixel = 0                                   -- ปิดเส้นขอบ
-hudFrame.Parent = hudGui                                       -- ใส่กรอบเข้า HUD
-
-local hudCorner = Instance.new("UICorner")                     -- ทำมุมโค้งให้กรอบ HUD ดูสวยงาม
-hudCorner.CornerRadius = UDim.new(0, 8)                        -- โค้งมน 8px
-hudCorner.Parent = hudFrame                                    -- ผูกกับกรอบ HUD
-
-local hudPadding = Instance.new("UIPadding")                   -- กำหนดระยะขอบด้านในของกรอบ HUD
-hudPadding.PaddingLeft = UDim.new(0, 10)                       -- ขอบในด้านซ้าย 10px
-hudPadding.PaddingTop = UDim.new(0, 8)                         -- ขอบในด้านบน 8px
-hudPadding.PaddingRight = UDim.new(0, 10)                      -- ขอบในด้านขวา 10px
-hudPadding.PaddingBottom = UDim.new(0, 8)                      -- ขอบในด้านล่าง 8px
-hudPadding.Parent = hudFrame                                   -- ผูกกับกรอบ HUD
-
-local hudText = Instance.new("TextLabel")                      -- TextLabel แสดงพิกัดและสถานะโหมด
-hudText.Size = UDim2.fromScale(1, 1)                           -- เต็มพื้นที่กรอบ (เว้นตาม Padding ที่ตั้งไว้)
-hudText.BackgroundTransparency = 1                             -- ตัว TextLabel เองไม่มีพื้นหลัง
-hudText.Font = Enum.Font.Code                                  -- ฟอนต์โมโนสเปซ ดูเหมาะกับเครื่องมือสายเดฟ
-hudText.TextSize = 14                                          -- ขนาดตัวอักษร 14px
-hudText.TextColor3 = Color3.fromRGB(170, 255, 170)             -- สีเขียวอ่อน อ่านง่ายบนพื้นหลังเข้ม
-hudText.TextXAlignment = Enum.TextXAlignment.Left              -- จัดข้อความชิดซ้าย
-hudText.TextYAlignment = Enum.TextYAlignment.Top               -- จัดข้อความชิดบน
-hudText.TextWrapped = true                                     -- ตัดบรรทัดอัตโนมัติเมื่อข้อความยาวเกินความกว้าง
-hudText.Parent = hudFrame                                      -- ใส่ TextLabel เข้ากรอบ HUD
-
--- ===================== ฟังก์ชันระบบ Dev Tools =====================
-
--- คีย์ B: เสก Part สีแดงโปร่งแสง 4x4x4 ตรงหน้าตัวละคร แล้วพิมพ์พิกัดลง Output
-local function spawnTestPart()
-	if not rootPart then                                        -- ยังไม่มีตัวละคร (rootPart ยังไม่ถูกโหลด)
-		print("[DevUtility] ยังไม่มีตัวละคร — ยังเสก Part ไม่ได้") -- แจ้งเตือนผู้ใช้
-		return                                                  -- จบการทำงาน
-	end
-	spawnCounter = spawnCounter + 1                             -- เพิ่มตัวนับเพื่อตั้งชื่อ Part ไม่ให้ซ้ำกัน
-	local part = Instance.new("Part")                           -- สร้าง Part ใหม่ (ยังไม่ได้ผูกกับ Workspace)
-	part.Name = "DevTestPart_" .. spawnCounter                  -- ตั้งชื่อพร้อมเลขลำดับ เช่น DevTestPart_1
-	part.Size = Vector3.new(4, 4, 4)                            -- ขนาด 4x4x4 ตามข้อกำหนด
-	part.Color = Color3.fromRGB(255, 0, 0)                      -- สีแดงสด
-	part.Transparency = 0.5                                     -- โปร่งแสง 50% ตามข้อกำหนด
-	part.Material = Enum.Material.Plastic                        -- วัสดุพลาสติก (ค่าปกติของ Part)
-	part.Anchored = true                                        -- ยึดค้างไว้ ไม่ให้ตกจากที่ที่เสก
-	part.CFrame = rootPart.CFrame * CFrame.new(0, 0, -5)        -- วางห่างหน้าตัวละคร 5 สตั๊ด (แกน -Z คือด้านหน้า)
-	part.Parent = workspace                                     -- ใส่เข้า Workspace เพื่อให้มองเห็นในโลก
-	spawnedParts[#spawnedParts + 1] = part                      -- บันทึกลงตาราง เพื่อให้คีย์ C ล้างได้ภายหลัง
-	print("[DevUtility] เสก Part ทดสอบแล้ว | พิกัด: " .. formatVector3(part.Position)) -- พิมพ์พิกัดที่เสกลง Output
+--- Noclip Toggle
+local noclipConn
+function Movement.ToggleNoclip(enabled)
+    Config.NoclipActive = enabled
+    if enabled then
+        noclipConn = RunService.Stepped:Connect(function()
+            for _, part in ipairs(Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end)
+        print("[Robot] Noclip ON")
+    else
+        if noclipConn then noclipConn:Disconnect() end
+        print("[Robot] Noclip OFF")
+    end
 end
 
--- สร้างซอร์สโค้ดของสคริปต์วาร์ป (Script ฝั่งเซิร์ฟเวอร์) โดยฝังค่าตำแหน่งปลายทางจริงเข้าไปในเทมเพลต
-local GATE_SOURCE_TEMPLATE = [==[
---[[
-	สคริปต์วาร์ปประตู (Script ฝั่งเซิร์ฟเวอร์)
-	วิธีใช้  : วาง Script นี้ไว้เป็นลูกของ Part ประตูวาร์ปใน Workspace
-	หน้าที่  : ตรวจจับการแตะประตู → Fade หน้าจอดำ → วาร์ป → คูลดาวน์ 2 วินาที
-	หมายเหตุ: ตำแหน่ง/มุมปลายทางถูกฝังเป็นค่าคงที่ตอนสร้างประตูด้วยคีย์ L
-]]
-local Players = game:GetService("Players")             -- ใช้หาผู้เล่นจากตัวละครที่แตะประตู
-local TweenService = game:GetService("TweenService")   -- ใช้ทำเอฟเฟกต์ Fade หน้าจอดำ
-
-local gate = script.Parent                             -- อ้างอิง Part ประตูวาร์ป (ต้องเป็นลูกของ Part)
-local COOLDOWN_TIME = 2                                -- คูลดาวน์ 2 วินาที กันวาร์ปรัว
-local FADE_TIME = 0.35                                 -- ระยะเวลา fade เข้า/ออก 1 รอบ (วินาที)
-local EXIT_POSITION = Vector3.new(__X__, __Y__, __Z__) -- ตำแหน่งปลายทาง (ค่าจริงตอนกด L)
-local EXIT_YAW = math.rad(__YAW__)                     -- มุมหันของตัวละคร ณ ปลายทาง (หน่วยองศา)
-
-local lastTeleportTime = {}                            -- เก็บเวลาวาร์ปล่าสุดของผู้เล่นแต่ละคน
-
--- ฟังก์ชัน Fade หน้าจอดำ + วาร์ปตัวละคร (เรียกจากอีเวนต์ Touched)
-local function fadeAndTeleport(targetPlayer, character)
-	local gui = Instance.new("ScreenGui")               -- สร้าง GUI ชั่วคราวสำหรับจอดำ
-	gui.Name = "TeleportFadeGui"                        -- ตั้งชื่อ GUI
-	gui.IgnoreGuiInset = true                           -- ให้ครอบคลุมถึงแถบ UI ด้านบน
-	gui.ResetOnSpawn = false                            -- ไม่ล้างตอนตัวละครเกิดใหม่
-	gui.DisplayOrder = 9999                             -- ให้ทับ GUI อื่นทั้งหมด
-	local frame = Instance.new("Frame")                 -- กรอบสีดำเต็มจอ
-	frame.Size = UDim2.fromScale(1, 1)                  -- ครอบคลุมทั้งจอ
-	frame.BackgroundColor3 = Color3.new(0, 0, 0)        -- สีดำสนิท
-	frame.BackgroundTransparency = 1                    -- เริ่มโปร่งใส 100%
-	frame.BorderSizePixel = 0                           -- ปิดเส้นขอบ
-	frame.Parent = gui                                  -- ใส่ Frame เข้า GUI
-	gui.Parent = targetPlayer:WaitForChild("PlayerGui") -- ใส่ GUI เข้า PlayerGui ของผู้เล่น
-	local fadeIn = TweenService:Create(frame, TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {BackgroundTransparency = 0})
-	fadeIn:Play()                                       -- เริ่ม fade เป็นสีดำ
-	fadeIn.Completed:Wait()                             -- รอจนจอดำสนิท
-	if character and character.Parent and character:FindFirstChild("HumanoidRootPart") then
-		character.HumanoidRootPart.CFrame = CFrame.new(EXIT_POSITION) * CFrame.Angles(0, EXIT_YAW, 0)
-	end                                                 -- ย้ายตัวละครไปตำแหน่งปลายทาง
-	local fadeOut = TweenService:Create(frame, TweenInfo.new(FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {BackgroundTransparency = 1})
-	fadeOut:Play()                                      -- เริ่ม fade กลับเป็นจอใส
-	fadeOut.Completed:Wait()                            -- รอจนจอใสสนิท
-	gui:Destroy()                                       -- ลบ GUI ชั่วคราวทิ้ง
+--- Fly ขึ้น/ลง
+function Movement.FlyTo(targetPos, speed)
+    speed = speed or 50
+    local dist = (HumanoidRootPart.Position - targetPos).Magnitude
+    local t = dist / speed
+    local tween = TweenService:Create(
+        HumanoidRootPart,
+        TweenInfo.new(t, Enum.EasingStyle.Linear),
+        { CFrame = CFrame.new(targetPos) }
+    )
+    tween:Play()
+    print("[Robot] Flying to " .. tostring(targetPos))
 end
 
--- หา Model ตัวละครจาก Part ที่แตะประตู (คืน nil ถ้าไม่ใช่ตัวละคร)
-local function findCharacterFromHit(hitPart)
-	local model = hitPart:FindFirstAncestorOfClass("Model")     -- หา ancestor ที่ใกล้ที่สุดซึ่งเป็น Model
-	if model and model:FindFirstChildOfClass("Humanoid") then    -- Model ที่มี Humanoid อยู่ = ตัวละคร
-		return model                                             -- คืน Model ตัวละคร
-	end
-	return nil                                                   -- ไม่ใช่ตัวละคร → คืน nil
+-- ──────────────────────────────────────────────
+--  ⚔️ ATTACK / COMBAT FUNCTIONS
+-- ──────────────────────────────────────────────
+
+local Combat = {}
+
+--- ยิง/โจมตี enemy ที่ใกล้ที่สุด (Fake Damage via Remote - ปรับตาม game)
+function Combat.AttackNearest()
+    local enemy, dist = GetNearestEnemy()
+    if enemy and dist <= Config.DetectRange then
+        local hum = enemy:FindFirstChildOfClass("Humanoid")
+        if hum then
+            -- หมายเหตุ: Roblox ไม่อนุญาตให้ Client ลด HP ตรงๆ
+            -- ปรับส่วนนี้ให้ Fire Remote Event ของเกมแทน
+            warn("[Robot] [AttackNearest] Target: " .. enemy.Name .. " | Dist: " .. math.floor(dist) .. " studs")
+            print("[Robot] Attack! HP remaining: " .. hum.Health)
+        end
+    else
+        print("[Robot] No enemy in range (" .. Config.DetectRange .. " studs)")
+    end
 end
 
-gate.Touched:Connect(function(hit)                      -- ฟังอีเวนต์ทุกครั้งที่มีอะไรแตะประตู
-	local hitCharacter = findCharacterFromHit(hit)       -- หาตัวละครจากสิ่งที่แตะ
-	if not hitCharacter then return end                  -- ไม่ใช่ตัวละคร → จบการทำงาน
-	local hitHumanoid = hitCharacter:FindFirstChildOfClass("Humanoid") -- ดึง Humanoid มาตรวจ
-	if not hitHumanoid or hitHumanoid.Health <= 0 then return end      -- ไม่มี Humanoid/ตายแล้ว → ข้าม
-	local touchPlayer = Players:GetPlayerFromCharacter(hitCharacter)   -- หาผู้เล่นที่เป็นเจ้าของตัวละคร
-	if not touchPlayer then return end                   -- ไม่ใช่ผู้เล่น (เช่น NPC) → ข้าม
-	local now = os.clock()                               -- อ่านเวลาปัจจุบัน (หน่วย วินาที)
-	local last = lastTeleportTime[touchPlayer]           -- เวลาที่ผู้เล่นคนนี้วาร์ปล่าสุด
-	if last and (now - last) < COOLDOWN_TIME then return end   -- ยังไม่ครบ 2 วิ → ห้ามวาร์ปซ้ำ
-	lastTeleportTime[touchPlayer] = now                  -- บันทึกเวลาวาร์ปล่าสุดของผู้เล่นคนนี้
-	task.spawn(fadeAndTeleport, touchPlayer, hitCharacter) -- รัน fade+วาร์ปแบบไม่บล็อกอีเวนต์
+--- Auto Aim ไปที่ Enemy ที่ใกล้ที่สุด
+local autoAimConn
+function Combat.ToggleAutoAim(enabled)
+    Config.AutoAimActive = enabled
+    if enabled then
+        autoAimConn = RunService.RenderStepped:Connect(function()
+            local enemy = GetNearestEnemy()
+            if enemy then
+                local hrp = enemy:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    Workspace.CurrentCamera.CFrame = CFrame.new(
+                        Workspace.CurrentCamera.CFrame.Position,
+                        hrp.Position
+                    )
+                end
+            end
+        end)
+        print("[Robot] AutoAim ON")
+    else
+        if autoAimConn then autoAimConn:Disconnect() end
+        print("[Robot] AutoAim OFF")
+    end
+end
+
+--- Kill Aura — โจมตีทุก enemy ในรัศมีอย่างต่อเนื่อง
+local killAuraConn
+function Combat.ToggleKillAura(enabled)
+    if enabled then
+        killAuraConn = RunService.Heartbeat:Connect(function()
+            for _, enemy in ipairs(GetEnemies()) do
+                local hrp = enemy:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local dist = (HumanoidRootPart.Position - hrp.Position).Magnitude
+                    if dist <= Config.DetectRange then
+                        -- ปรับให้ Fire Remote Event ของเกม
+                        warn("[Robot] [KillAura] Attacking: " .. enemy.Name)
+                    end
+                end
+            end
+        end)
+        print("[Robot] KillAura ON")
+    else
+        if killAuraConn then killAuraConn:Disconnect() end
+        print("[Robot] KillAura OFF")
+    end
+end
+
+-- ──────────────────────────────────────────────
+--  🔍 DETECT / SCAN FUNCTIONS
+-- ──────────────────────────────────────────────
+
+local Scanner = {}
+
+--- แสดงรายชื่อ Enemy ทั้งหมดพร้อมระยะทาง
+function Scanner.ScanAll()
+    local enemies = GetEnemies()
+    print("═══════ 🔍 SCAN RESULT ═══════")
+    if #enemies == 0 then
+        print("No enemies found.")
+    else
+        for i, enemy in ipairs(enemies) do
+            local hrp = enemy:FindFirstChild("HumanoidRootPart")
+            local hum = enemy:FindFirstChildOfClass("Humanoid")
+            local dist = hrp and math.floor((HumanoidRootPart.Position - hrp.Position).Magnitude) or "?"
+            local hp   = hum and math.floor(hum.Health) or "?"
+            print(i .. ". " .. enemy.Name .. " | HP: " .. hp .. " | Dist: " .. dist .. " studs")
+        end
+    end
+    print("══════════════════════════════")
+end
+
+--- ESP — แสดง Highlight บน Enemy
+function Scanner.ToggleESP(enabled)
+    Config.ESPActive = enabled
+    -- ลบ ESP เก่าทั้งหมดก่อน
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v:IsA("SelectionBox") and v.Name == "RobotESP" then
+            v:Destroy()
+        end
+    end
+    if enabled then
+        for _, enemy in ipairs(GetEnemies()) do
+            local box = Instance.new("SelectionBox")
+            box.Name = "RobotESP"
+            box.Adornee = enemy
+            box.Color3 = Color3.fromRGB(255, 0, 0)
+            box.LineThickness = 0.05
+            box.SurfaceTransparency = 0.7
+            box.SurfaceColor3 = Color3.fromRGB(255, 0, 0)
+            box.Parent = Workspace
+        end
+        print("[Robot] ESP ON")
+    else
+        print("[Robot] ESP OFF")
+    end
+end
+
+--- แสดงระยะทาง Real-time ไปยัง Enemy ที่ใกล้ที่สุด
+function Scanner.TrackNearest()
+    local enemy, dist = GetNearestEnemy()
+    if enemy then
+        print("[Robot] Nearest: " .. enemy.Name .. " | " .. math.floor(dist) .. " studs away")
+    else
+        print("[Robot] No enemies detected.")
+    end
+end
+
+-- ──────────────────────────────────────────────
+--  🤖 AUTO FARM
+-- ──────────────────────────────────────────────
+
+local AutoFarm = {}
+local autoFarmConn
+
+--- Auto Farm — เดินหาและโจมตี Enemy อัตโนมัติ
+function AutoFarm.Toggle(enabled)
+    Config.AutoFarmActive = enabled
+    if enabled then
+        autoFarmConn = RunService.Heartbeat:Connect(function()
+            local enemy, dist = GetNearestEnemy()
+            if enemy then
+                local hrp = enemy:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    if dist > 5 then
+                        -- เดินเข้าหา
+                        Humanoid:MoveTo(hrp.Position)
+                    else
+                        -- โจมตี
+                        Combat.AttackNearest()
+                    end
+                end
+            end
+        end)
+        print("[Robot] AutoFarm ON")
+    else
+        if autoFarmConn then autoFarmConn:Disconnect() end
+        Humanoid:MoveTo(HumanoidRootPart.Position) -- หยุด
+        print("[Robot] AutoFarm OFF")
+    end
+end
+
+-- ──────────────────────────────────────────────
+--  🎛️ MENU (ScreenGui)
+-- ──────────────────────────────────────────────
+
+local function CreateMenu()
+    -- ลบเมนูเก่าก่อน
+    local oldGui = LocalPlayer.PlayerGui:FindFirstChild("RobotMenu")
+    if oldGui then oldGui:Destroy() end
+
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "RobotMenu"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Parent = LocalPlayer.PlayerGui
+
+    -- Main Frame
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 320, 0, 460)
+    Frame.Position = UDim2.new(0, 20, 0.5, -230)
+    Frame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    Frame.BorderSizePixel = 0
+    Frame.Parent = ScreenGui
+
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 10)
+    Corner.Parent = Frame
+
+    -- Title
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 40)
+    Title.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+    Title.Font = Enum.Font.GothamBold
+    Title.Text = "🤖 ROBOT FRAMEWORK"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextSize = 16
+    Title.Parent = Frame
+
+    local TitleCorner = Instance.new("UICorner")
+    TitleCorner.CornerRadius = UDim.new(0, 10)
+    TitleCorner.Parent = Title
+
+    -- Draggable
+    local dragging, dragInput, dragStart, startPos
+    Title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = Frame.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            Frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+
+    -- Scroll Container
+    local ScrollFrame = Instance.new("ScrollingFrame")
+    ScrollFrame.Size = UDim2.new(1, -10, 1, -50)
+    ScrollFrame.Position = UDim2.new(0, 5, 0, 45)
+    ScrollFrame.BackgroundTransparency = 1
+    ScrollFrame.ScrollBarThickness = 4
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    ScrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    ScrollFrame.Parent = Frame
+
+    local ListLayout = Instance.new("UIListLayout")
+    ListLayout.Padding = UDim.new(0, 6)
+    ListLayout.Parent = ScrollFrame
+
+    local Padding = Instance.new("UIPadding")
+    Padding.PaddingLeft = UDim.new(0, 5)
+    Padding.PaddingRight = UDim.new(0, 5)
+    Padding.PaddingTop = UDim.new(0, 5)
+    Padding.Parent = ScrollFrame
+
+    -- ── Helper: สร้างปุ่ม ──
+    local function MakeButton(text, color, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 36)
+        btn.BackgroundColor3 = color or Color3.fromRGB(40, 40, 55)
+        btn.Font = Enum.Font.GothamSemibold
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 13
+        btn.BorderSizePixel = 0
+        btn.Parent = ScrollFrame
+
+        local bc = Instance.new("UICorner")
+        bc.CornerRadius = UDim.new(0, 6)
+        bc.Parent = btn
+
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {
+                BackgroundColor3 = color and color:Lerp(Color3.fromRGB(255,255,255), 0.15) or Color3.fromRGB(60,60,80)
+            }):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.15), {
+                BackgroundColor3 = color or Color3.fromRGB(40, 40, 55)
+            }):Play()
+        end)
+
+        btn.MouseButton1Click:Connect(callback)
+        return btn
+    end
+
+    -- ── Helper: สร้าง Toggle ──
+    local function MakeToggle(text, configKey, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, 0, 0, 36)
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+        btn.Font = Enum.Font.GothamSemibold
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.TextSize = 13
+        btn.BorderSizePixel = 0
+        btn.Parent = ScrollFrame
+
+        local bc = Instance.new("UICorner")
+        bc.CornerRadius = UDim.new(0, 6)
+        bc.Parent = btn
+
+        local function UpdateToggle()
+            local active = Config[configKey]
+            btn.Text = text .. (active and "  ✅ ON" or "  ❌ OFF")
+            btn.BackgroundColor3 = active and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(40, 40, 55)
+        end
+        UpdateToggle()
+
+        btn.MouseButton1Click:Connect(function()
+            Config[configKey] = not Config[configKey]
+            callback(Config[configKey])
+            UpdateToggle()
+        end)
+        return btn
+    end
+
+    -- ── Helper: Section Label ──
+    local function MakeSection(text)
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, 0, 0, 24)
+        lbl.BackgroundTransparency = 1
+        lbl.Font = Enum.Font.GothamBold
+        lbl.Text = text
+        lbl.TextColor3 = Color3.fromRGB(0, 180, 255)
+        lbl.TextSize = 12
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.Parent = ScrollFrame
+        return lbl
+    end
+
+    -- ════════════ MENU ITEMS ════════════
+
+    MakeSection("─── 🚀 MOVEMENT ───")
+
+    MakeButton("⚡ Speed Boost (x" .. Config.WalkSpeed .. ")", Color3.fromRGB(30, 100, 200), function()
+        Movement.SetSpeed(Config.WalkSpeed == 16 and 100 or 16)
+    end)
+
+    MakeButton("🦘 High Jump", Color3.fromRGB(30, 100, 200), function()
+        Movement.SetJump(Config.JumpPower == 50 and 200 or 50)
+    end)
+
+    MakeToggle("🌀 Noclip", "NoclipActive", function(state)
+        Movement.ToggleNoclip(state)
+    end)
+
+    MakeButton("🎯 TP to Nearest Enemy", Color3.fromRGB(50, 80, 160), function()
+        local enemy = GetNearestEnemy()
+        if enemy then
+            local hrp = enemy:FindFirstChild("HumanoidRootPart")
+            if hrp then Movement.Teleport(hrp.Position + Vector3.new(0, 3, 0)) end
+        else
+            warn("[Robot] No enemy found!")
+        end
+    end)
+
+    MakeSection("─── ⚔️ COMBAT ───")
+
+    MakeButton("💥 Attack Nearest", Color3.fromRGB(180, 40, 40), function()
+        Combat.AttackNearest()
+    end)
+
+    MakeToggle("🎯 Auto Aim", "AutoAimActive", function(state)
+        Combat.ToggleAutoAim(state)
+    end)
+
+    MakeToggle("⚡ Kill Aura", "KillAuraActive", function(state)
+        Combat.ToggleKillAura(state)
+    end)
+
+    MakeSection("─── 🔍 SCAN / ESP ───")
+
+    MakeButton("📡 Scan All Enemies", Color3.fromRGB(0, 130, 130), function()
+        Scanner.ScanAll()
+    end)
+
+    MakeButton("📍 Track Nearest", Color3.fromRGB(0, 130, 130), function()
+        Scanner.TrackNearest()
+    end)
+
+    MakeToggle("🟥 ESP (Enemy Box)", "ESPActive", function(state)
+        Scanner.ToggleESP(state)
+    end)
+
+    MakeSection("─── 🤖 AUTO FARM ───")
+
+    MakeToggle("🌾 Auto Farm", "AutoFarmActive", function(state)
+        AutoFarm.Toggle(state)
+    end)
+
+    MakeSection("─── ⚙️ SETTINGS ───")
+
+    MakeButton("🔄 Reset Character", Color3.fromRGB(80, 50, 20), function()
+        LocalPlayer:LoadCharacter()
+    end)
+
+    MakeButton("❌ Close Menu", Color3.fromRGB(120, 20, 20), function()
+        ScreenGui:Destroy()
+    end)
+end
+
+-- ──────────────────────────────────────────────
+--  LAUNCH
+-- ──────────────────────────────────────────────
+
+-- อัปเดต Character เมื่อ Respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Character          = char
+    HumanoidRootPart   = char:WaitForChild("HumanoidRootPart")
+    Humanoid           = char:WaitForChild("Humanoid")
 end)
 
-Players.PlayerRemoving:Connect(function(leavingPlayer)  -- เมื่อผู้เล่นคนใดออกจากเกม
-	lastTeleportTime[leavingPlayer] = nil                -- ลบข้อมูลคูลดาวน์ของผู้เล่นคนนั้น
-end)
-]==]
-
--- คืนซอร์สโค้ดสคริปต์วาร์ปที่ฝังค่าตำแหน่ง/มุมปลายทาง (Point 2) จริงเรียบร้อยแล้ว
-local function buildGateSource(exitCFrame)
-	local position = exitCFrame.Position                     -- ดึงเฉพาะตำแหน่ง (Vector3) ของจุดปลายทาง
-	local _, yaw = exitCFrame:ToEulerAnglesYXZ()              -- ดึงมุมหันรอบแกน Y (Yaw) ของจุดปลายทาง
-	local result = GATE_SOURCE_TEMPLATE                      -- เริ่มจากเทมเพลตที่เตรียมไว้
-	result = string.gsub(result, "__X__", tostring(position.X))     -- แทนที่ค่า X ด้วยค่าจริง
-	result = string.gsub(result, "__Y__", tostring(position.Y))     -- แทนที่ค่า Y ด้วยค่าจริง
-	result = string.gsub(result, "__Z__", tostring(position.Z))     -- แทนที่ค่า Z ด้วยค่าจริง
-	result = string.gsub(result, "__YAW__", tostring(math.deg(yaw))) -- แทนที่มุมหันด้วยหน่วยองศา
-	return result                                             -- คืนซอร์สโค้ดที่สมบูรณ์
-end
-
--- คีย์ L: สร้างประตูวาร์ปที่ Point 1 พร้อมใส่ Script วาร์ป และพิมพ์ซอร์สโค้ดลง Output
-local function buildGate()
-	if not point1 then                                        -- ยังไม่ได้ตั้ง Point 1
-		print("[DevUtility] ยังไม่ได้ตั้ง Point 1 — กด K เพื่อบันทึกจุดเริ่มต้นก่อน") -- แจ้งเตือน
-		return                                                 -- หยุด ไม่สร้างประตู
-	end
-	if not rootPart then                                      -- ยังไม่มีตัวละคร
-		print("[DevUtility] ยังไม่มีตัวละคร — ยังสร้างประตูวาร์ปไม่ได้") -- แจ้งเตือน
-		return                                                 -- หยุด
-	end
-	point2 = rootPart.CFrame                                  -- บันทึกจุดปลายทาง (Exit) จากตำแหน่งที่ยืนอยู่ตอนกด L
-	local gate = Instance.new("Part")                         -- สร้าง Part สำหรับเป็นประตูวาร์ป
-	gate.Name = "TeleportGate"                                -- ตั้งชื่อประตู
-	gate.Size = Vector3.new(8, 10, 1)                         -- รูปทรงประตู: กว้าง 8 สูง 10 หนา 1 สตั๊ด
-	gate.Color = Color3.fromRGB(0, 140, 255)                  -- สีฟ้าตามข้อกำหนด
-	gate.Transparency = 0.5                                   -- โปร่งแสง 50% ตามข้อกำหนด
-	gate.Material = Enum.Material.Neon                        -- วัสดุเรืองแสง ให้ดูเหมือนประตูวาร์ป
-	gate.Anchored = true                                      -- ยึดค้างไว้ไม่ให้ตกหรือถูกดัน
-	gate.CanCollide = false                                   -- ไม่มีการชน เพื่อให้เดินเข้าไปกระตุ้นได้โดยไม่ติด
-	-- วางประตูให้ "ตั้งอยู่บนพื้น" โดยกะว่าพื้นอยู่ใต้จุดที่ยืน ~3 สตั๊ด (ความสูง HumanoidRootPart โดยประมาณ)
-	local floorPosition = point1.Position - Vector3.new(0, 3, 0)            -- ตำแหน่งพื้นโดยประมาณใต้จุดเริ่มต้น
-	local gatePosition = floorPosition + Vector3.new(0, gate.Size.Y / 2, 0) -- ยกกึ่งกลางประตูให้เท่ากับครึ่งความสูง
-	local _, yaw = point1:ToEulerAnglesYXZ()                                -- ดึงมุมหัน (Yaw) ของจุดเริ่มต้น
-	gate.CFrame = CFrame.new(gatePosition) * CFrame.Angles(0, yaw, 0)       -- ตั้งตำแหน่ง + หันหน้าตามตัวละครตอนกด K
-	gate.Parent = workspace                                     -- ใส่ประตูเข้า Workspace เพื่อให้มองเห็น
-	-- สร้างซอร์สโค้ดของสคริปต์วาร์ปสำหรับจุดปลายทางรอบนี้
-	local source = buildGateSource(point2)
-	-- สร้าง Script (server) เป็นลูกของประตูตามที่ขอ
-	local gateScript = Instance.new("Script")
-	gateScript.Name = "TeleportGateHandler"                    -- ตั้งชื่อสคริปต์ให้สื่อความหมาย
-	local sourceOK, sourceErr = pcall(function()               -- พยายามใส่เนื้อหาสคริปต์ (อาจติดข้อจำกัดสิทธิ์)
-		gateScript.Source = source                             -- กำหนดเนื้อหาของ Script
-	end)
-	if not sourceOK then                                       -- เขียน Script.Source ไม่สำเร็จ (คาดว่าติดสิทธิ์ Plugin)
-		local stash = Instance.new("StringValue")               -- สร้าง StringValue สำรองเก็บซอร์ส
-		stash.Name = "SourceCode_คัดลอกไปใส่ในScript"           -- ตั้งชื่อบอกวิธีใช้
-		stash.Value = source                                   -- เก็บซอร์สโค้ดทั้งหมดไว้ในนี้
-		stash.Parent = gate                                    -- ใส่ StringValue เข้าไปในประตู
-		print("[DevUtility] แจ้งเตือน: เขียน Script.Source ไม่ได้ (" .. tostring(sourceErr) .. ") → เก็บซอร์สไว้ใน StringValue แล้ว")
-	end
-	gateScript.Parent = gate                                   -- ใส่ Script เข้าไปใน Part ประตู
-	-- บันทึกข้อมูลประตูลงตาราง เพื่อใช้ตรวจจับฝั่ง Client และให้คีย์ C ล้างได้
-	gates[#gates + 1] = {
-		part = gate,                                           -- อ้างอิง Part ประตู
-		exitCFrame = point2,                                   -- CFrame ปลายทาง (จุดที่ยืนตอนกด L)
-		lastTeleport = 0,                                      -- เวลาอนุญาตวาร์ปครั้งถัดไป (0 = วาร์ปได้ทันที)
-	}
-	print("[DevUtility] สร้างประตูวาร์ปแล้ว | Point 1 (ประตู): " .. formatVector3(point1.Position) .. " | Point 2 (ปลายทาง): " .. formatVector3(point2.Position))
-	print("[DevUtility] ===== ซอร์สโค้ดสคริปต์วาร์ป (คัดลอกไปวางใน Part ประตู) =====\n" .. source .. "\n[DevUtility] ===== สิ้นสุดซอร์สโค้ด =====")
-end
-
--- คีย์ C: ลบ Part ทดสอบและประตูวาร์ปทั้งหมดที่เสกออกมาทิ้ง (Clean Up)
-local function cleanUp()
-	local removed = 0                                          -- ตัวนับจำนวน Instance ที่ถูกลบ
-	for i = #spawnedParts, 1, -1 do                            -- วนจากท้ายตารางของ Part ทดสอบ
-		local part = spawnedParts[i]                           -- หยิบ Part แต่ละชิ้น
-		if part and part.Parent then                           -- ถ้ายังอยู่ในเกม
-			part:Destroy()                                     -- ทำลาย Part ทิ้ง
-			removed = removed + 1                              -- นับจำนวนที่ลบ
-		end
-		spawnedParts[i] = nil                                  -- เคลียร์ค่าออกจากตาราง
-	end
-	for i = #gates, 1, -1 do                                   -- วนจากท้ายตารางของประตูวาร์ป
-		local gateInfo = gates[i]                              -- หยิบข้อมูลประตูแต่ละบาน
-		if gateInfo.part and gateInfo.part.Parent then         -- ถ้าประตูยังอยู่ในเกม
-			gateInfo.part:Destroy()                            -- ทำลายทั้งประตูและ Script/StringValue ข้างใน
-			removed = removed + 1                              -- นับจำนวนที่ลบ
-		end
-		gates[i] = nil                                         -- เคลียร์ค่าออกจากตาราง
-	end
-	print("[DevUtility] Clean Up: ลบ Instance ที่เสกออกมาทั้งหมดแล้ว " .. removed .. " ชิ้น")
-	print("[DevUtility] (จุด Point 1/Point 2 ยังถูกเก็บไว้ — กด K/L ใหม่เพื่อทับค่าเดิมได้)")
-end
-
--- ===================== จัดการคีย์ลัดทั้งหมด =====================
-UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-	if gameProcessedEvent then return end                       -- ถ้ามี GUI/ช่องแชทรับเหตุการณ์นี้ไปแล้ว (เช่นกำลังพิมพ์แชท) → ไม่ตอบสนอง
-	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end -- รับเฉพาะการกดคีย์บอร์ดเท่านั้น
-	local key = input.KeyCode                                   -- คีย์ที่ผู้ใช้กดเข้ามา
-
-	if key == Enum.KeyCode.P then                               -- คีย์ P: พิมพ์พิกัดตัวละครปัจจุบัน
-		if rootPart then                                        -- ถ้ามีตัวละคร
-			print("[DevUtility] ตำแหน่งตัวละครปัจจุบัน: " .. formatVector3(rootPart.Position)) -- พิมพ์เป็น Vector3.new(...)
-		else                                                    -- ยังไม่มีตัวละคร
-			print("[DevUtility] ยังไม่มีตัวละคร")               -- แจ้งเตือน
-		end
-
-	elseif key == Enum.KeyCode.B then                           -- คีย์ B: เสก Part สีแดง 4x4x4 ตรงหน้าตัวละคร
-		spawnTestPart()                                         -- เรียกฟังก์ชันเสก Part
-
-	elseif key == Enum.KeyCode.M then                           -- คีย์ M: คำนวณระยะห่างถึงจุดที่เมาส์ชี้
-		local hit = getMouseHit()                               -- ยิง Ray หาจุดที่เมาส์ชี้
-		if rootPart and hit then                                -- มีทั้งตัวละครและจุดที่ชี้เจอ
-			local distance = (rootPart.Position - hit.Position).Magnitude -- คำนวณระยะทางระหว่าง 2 จุด (สตั๊ด)
-			print("[DevUtility] ระยะห่างถึงจุดที่เมาส์ชี้: " .. string.format("%.2f", distance) .. " Studs") -- พิมพ์ระยะทาง
-		elseif not hit then                                     -- ชี้ไปที่ว่าง (ไม่โดนวัตถุ)
-			print("[DevUtility] ไม่พบพื้นผิวที่เมาส์ชี้ (ชี้ไปที่ว่าง)") -- แจ้งเตือน
-		else                                                    -- ยังไม่มีตัวละคร
-			print("[DevUtility] ยังไม่มีตัวละคร")               -- แจ้งเตือน
-		end
-
-	elseif key == Enum.KeyCode.F2 then                          -- คีย์ F2: เพิ่ม Coins ใน leaderstats +1,000
-		local leaderstats = player:FindFirstChild("leaderstats") -- หาโฟลเดอร์ leaderstats ของผู้เล่น
-		local coins = leaderstats and leaderstats:FindFirstChild("Coins") -- หาค่า Coins ข้างใน (ถ้ามี)
-		if coins and (coins:IsA("IntValue") or coins:IsA("NumberValue")) then -- เจอค่า Coins ประเภทตัวเลข
-			coins.Value = coins.Value + 1000                   -- เพิ่มค่า Coins ให้ผู้เล่น 1,000
-			print("[DevUtility] Coins +1,000 → ปัจจุบัน = " .. tostring(coins.Value)) -- พิมพ์ค่าใหม่
-		else                                                    -- ไม่พบ leaderstats หรือค่า Coins
-			print("[DevUtility] ไม่พบค่า Coins ใน leaderstats — ไม่ได้เพิ่มค่า") -- แจ้งเตือนตามจริง
-		end
-
-	elseif key == Enum.KeyCode.F3 then                          -- คีย์ F3: สลับโหมดวิ่งเร็ว + รีเลือดเต็ม
-		if not humanoid then                                    -- ยังไม่มี Humanoid
-			print("[DevUtility] ยังไม่มีตัวละคร")               -- แจ้งเตือน
-		else                                                    -- มี Humanoid พร้อมใช้งาน
-			speedMode = not speedMode                           -- สลับสถานะโหมดวิ่งเร็ว
-			if speedMode then                                   -- ถ้าเพิ่งเปิดโหมดวิ่งเร็ว
-				humanoid.WalkSpeed = 50                         -- ตั้งความเร็ววิ่งเป็น 50 ตามข้อกำหนด
-				humanoid.Health = humanoid.MaxHealth            -- รีเลือดกลับมาเต็มหลอด
-				print("[DevUtility] เปิดโหมดวิ่งเร็ว: WalkSpeed = 50 + รีเลือดเต็ม")
-			else                                                -- ถ้าเพิ่งปิดโหมดวิ่งเร็ว
-				humanoid.WalkSpeed = 16                         -- คืนค่าความเร็วเป็นค่าเริ่มต้นของ Roblox
-				print("[DevUtility] ปิดโหมดวิ่งเร็ว → WalkSpeed = 16")
-			end
-		end
-
-	elseif key == Enum.KeyCode.T then                           -- คีย์ T: วาร์ปตัวละครไปยังจุดที่เมาส์ชี้
-		local hit = getMouseHit()                               -- ยิง Ray หาจุดที่เมาส์ชี้
-		if rootPart and hit then                                -- มีทั้งตัวละครและจุดที่ชี้เจอ
-			local targetPosition = hit.Position + Vector3.new(0, 3, 0) -- ยกขึ้น 3 สตั๊ด กันตัวละครจมลงในพื้น
-			local currentCFrame = rootPart.CFrame               -- เก็บ CFrame ปัจจุบันไว้ใช้ต่อ
-			rootPart.CFrame = CFrame.new(targetPosition) * (currentCFrame - currentCFrame.Position) -- วาร์ปแบบรักษาทิศทางเดิม
-			print("[DevUtility] วาร์ปไปยัง " .. formatVector3(targetPosition)) -- พิมพ์ตำแหน่งปลายทาง
-		elseif not hit then                                     -- ชี้ไปที่ว่าง
-			print("[DevUtility] ไม่พบพื้นผิวที่เมาส์ชี้ — ยังวาร์ปไม่ได้") -- แจ้งเตือน
-		else                                                    -- ยังไม่มีตัวละคร
-			print("[DevUtility] ยังไม่มีตัวละคร")               -- แจ้งเตือน
-		end
-
-	elseif key == Enum.KeyCode.N then                           -- คีย์ N: สลับเปิด/ปิดโหมด NoClip
-		noClipEnabled = not noClipEnabled                       -- สลับสถานะโหมด NoClip
-		if noClipEnabled then                                   -- ถ้าเพิ่งเปิด NoClip
-			print("[DevUtility] เปิดโหมด NoClip — เดินทะลุกำแพงได้แล้ว")
-		else                                                    -- ถ้าเพิ่งปิด NoClip
-			if character then                                   -- ถ้ามีตัวละคร
-				for _, part in ipairs(character:GetDescendants()) do -- วนทุก Instance ภายในตัวละคร
-					if part:IsA("BasePart") then                -- เฉพาะ Part ที่มีรูปร่างเท่านั้น
-						part.CanCollide = true                  -- คืนค่าให้ชนของแข็งได้ตามปกติ
-					end
-				end
-			end
-			print("[DevUtility] ปิดโหมด NoClip — การชนกลับมาปกติแล้ว (ถ้าอยู่กลางกำแพงให้เดินออกมาก่อน)")
-		end
-
-	elseif key == Enum.KeyCode.C then                           -- คีย์ C: Clean Up ล้างสิ่งที่เสกออกมา
-		cleanUp()                                               -- เรียกฟังก์ชันล้าง Part ทดสอบและประตูวาร์ป
-
-	elseif key == Enum.KeyCode.K then                           -- คีย์ K: Set Point 1 (Entrance)
-		if rootPart then                                        -- ถ้ามีตัวละคร
-			point1 = rootPart.CFrame                            -- บันทึกจุดเริ่มต้นจากตำแหน่งที่ยืนอยู่ (เก็บทั้งตำแหน่ง+ทิศทาง)
-			print("[DevUtility] บันทึก Point 1 (Entrance) ที่ " .. formatVector3(point1.Position)) -- ยืนยันการบันทึก
-		else                                                    -- ยังไม่มีตัวละคร
-			print("[DevUtility] ยังไม่มีตัวละคร — ยังตั้ง Point 1 ไม่ได้") -- แจ้งเตือน
-		end
-
-	elseif key == Enum.KeyCode.L then                           -- คีย์ L: Set Point 2 (Exit) + สร้างประตูวาร์ป
-		buildGate()                                             -- เรียกฟังก์ชันสร้างประตู (เช็ค Point 1 ข้างในเอง)
-	end
-end)
-
--- ===================== ลูปทำงานทุกเฟรม (HUD + ตรวจจับประตูวาร์ป) =====================
-RunService.Heartbeat:Connect(function()
-	-- 1) อัปเดต HUD: พิกัดแบบเรียลไทม์ + สถานะ Speed/NoClip
-	if rootPart and rootPart.Parent then                        -- ถ้ามีตัวละครและยังอยู่ในเกม
-		hudText.Text = table.concat({                           -- ต่อข้อความหลายบรรทัดเป็นก้อนเดียว
-			"[ DEV UTILITY & TELEPORT ]",                       -- บรรทัดหัวเรื่อง
-			"POS: " .. formatVector3(rootPart.Position),        -- บรรทัดพิกัดตัวละครปัจจุบัน
-			"Speed: " .. (speedMode and "ON" or "OFF")          -- บรรทัดสถานะโหมดวิ่งเร็ว
-				.. "  |  NoClip: " .. (noClipEnabled and "ON" or "OFF"), -- ต่อด้วยสถานะโหมด NoClip
-		}, "\n")                                                -- คั่นแต่ละบรรทัดด้วยขึ้นบรรทัดใหม่
-	else                                                        -- ยังไม่มีตัวละคร
-		hudText.Text = table.concat({                           -- แสดงข้อความรอตัวละคร
-			"[ DEV UTILITY & TELEPORT ]",                       -- บรรทัดหัวเรื่อง
-			"POS: (waiting for character)",                     -- ยังไม่มีตัวละครให้อ่านพิกัด
-			"Speed: " .. (speedMode and "ON" or "OFF")          -- สถานะโหมดวิ่งเร็ว
-				.. "  |  NoClip: " .. (noClipEnabled and "ON" or "OFF"), -- สถานะโหมด NoClip
-		}, "\n")                                                -- คั่นด้วยขึ้นบรรทัดใหม่
-	end
-
-	-- 2) ตรวจจับการเดินเข้าไปในประตูวาร์ป (ระบบฝั่ง Client สำหรับทดสอบทันที)
-	if rootPart and rootPart.Parent and #gates > 0 then         -- มีตัวละครและมีประตูที่ต้องตรวจ
-		local now = os.clock()                                  -- อ่านเวลาปัจจุบันไว้ใช้เช็ค Cooldown
-		for _, gateInfo in ipairs(gates) do                      -- วนตรวจประตูทุกบานที่เคยสร้าง
-			local gatePart = gateInfo.part                      -- Part ของประตูบานนี้
-			if gatePart and gatePart.Parent                     -- ประตูยังอยู่ในเกม
-				and now >= gateInfo.lastTeleport                -- และพ้นคูลดาวน์ 2 วินาทีแล้ว
-				and (rootPart.Position - gatePart.Position).Magnitude <= 40 then -- อยู่ใกล้ประตูไม่เกิน 40 สตั๊ด (ประหยัดการคำนวณ)
-				local localPosition = gatePart.CFrame:PointToObjectSpace(rootPart.Position) -- แปลงพิกัดตัวละครเป็นระบบพิกัดของประตู
-				local half = gatePart.Size * 0.5                -- ครึ่งหนึ่งของขนาดประตู (ใช้เป็นขอบเขตตรวจจับ)
-				local inside = math.abs(localPosition.X) <= half.X + 2 -- อยู่ในแนวกว้าง (เผื่อ 2 สตั๊ด)
-					and math.abs(localPosition.Z) <= half.Z + 2         -- อยู่ในแนวหน้า-หลัง (เผื่อ 2 สตั๊ด)
-					and math.abs(localPosition.Y) <= half.Y + 3         -- อยู่ในแนวสูง (เผื่อ 3 สตั๊ด)
-				if inside then                                   -- ตัวละครเดินเข้าเขตประตูแล้ว
-					gateInfo.lastTeleport = now + 2              -- ตั้งคูลดาวน์ 2 วินาที กันวาร์ปรัว
-					task.spawn(fadeOverlay, function()           -- รัน Fade + วาร์ปแบบไม่บล็อกเฟรมเกม
-						if rootPart and rootPart.Parent then      -- เช็คอีกครั้งว่าตัวภาพยังอยู่ในเกม
-							rootPart.CFrame = gateInfo.exitCFrame -- ย้ายตัวละครไปจุดปลายทาง (Point 2)
-						end
-					end)
-				end
-			end
-		end
-	end
-end)
-
--- ===================== ลูป NoClip (ปิดการชนก่อนขั้นตอนฟิสิกส์ทุกเฟรม) =====================
-RunService.Stepped:Connect(function()
-	if noClipEnabled and character and character.Parent then     -- ถ้าเปิด NoClip และมีตัวละคร
-		for _, part in ipairs(character:GetDescendants()) do      -- วนทุก Instance ภายในตัวละคร
-			if part:IsA("BasePart") then                          -- เฉพาะ Part ที่มีรูปร่างเท่านั้น
-				part.CanCollide = false                           -- ปิดการชน → เดินทะลุกำแพงได้ (ทุกเฟรม)
-			end
-		end
-	end
-end)
+-- เปิดเมนู
+CreateMenu()
+print("╔══════════════════════════════╗")
+print("║  🤖 ROBOT FRAMEWORK LOADED   ║")
+print("╚══════════════════════════════╝")
